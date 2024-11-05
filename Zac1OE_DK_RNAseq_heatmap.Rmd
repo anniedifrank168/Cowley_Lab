@@ -1,0 +1,82 @@
+---
+title: "Zac1OE_DK_RNAseq_Heatmap"
+output: html_document
+date: "2024-11-05"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+# Use pacman to check whether packages are installed, if not load them
+if (!require("pacman")) install.packages("pacman")
+library(pacman)
+pacman::p_load(
+ dplyr,
+ tidyverse,
+ purrr,
+ ggplot2,
+ biomaRt,
+ readxl,
+ pheatmap)
+```
+
+1. converting DK's RNAseq data genes to ensembl ids (using biomaRt)
+```{r}
+Huh7_prefilter <- read.delim("data/Huh7_Data.txt", header=TRUE)
+#note on the data- X1s are the 3 replicates of Zac1OE, X2s are 3 replicates of controls. 
+
+
+#vic-marie's list is v112
+ensembl <- useEnsembl(biomart = "genes",
+                      dataset = "hsapiens_gene_ensembl",
+                      version = 112)
+
+#retrieve ensembl IDs
+listAttributes(ensembl) 
+  #using ensumbl_gene_id and external_gene_name
+
+#run getBM 
+Huh7_prefilter_IDed <- getBM(attributes = c("ensembl_gene_id", "external_gene_name"),
+                             filters = "external_gene_name",
+                             values = Huh7_prefilter$NAME, 
+                             mart = ensembl)
+
+# Check for duplicate gene names in the data
+table(duplicated(Huh7_prefilter$NAME))
+  #none
+
+# Check for duplicate gene names in the converted dataset
+table(duplicated(Huh7_prefilter_IDed$external_gene_name))
+  #3350 duplicates, can happen if multiple ensembl IDs match a single gene name. not going to get rid of them 
+
+
+Huh7_prefilter_ensembl <- merge(Huh7_prefilter, Huh7_prefilter_IDed, by.x = "NAME",by.y = "external_gene_name", all.x =TRUE )
+```
+
+2. filtering DK's RNAseq data on the human IGN list (from Vic-Marie)
+```{r}
+#Load human IGN list 
+human_IGN<- read_excel("data/Human_IGN_List_ENSEMBL_v112.xlsx")
+colnames(human_IGN) <- c("Gene","GeneID","ensembl_gene_id")
+
+#join datasets on matching ensembl IDs
+Huh7_filtered <- Huh7_prefilter_ensembl %>% semi_join(human_IGN, by = "ensembl_gene_id")
+  #196 genes, no duplicates 
+
+```
+
+3. Creating heatmap 
+```{r}
+#creating matrix of only the numeric values 
+expvals_huh7 <- as.matrix(Huh7_filtered[,c("X1","X1.1","X1.2","X2","X2.1","X2.2")])
+
+#set row names 
+rownames(expvals_huh7) <- Huh7_filtered$NAME
+#set col names 
+colnames(expvals_huh7) <- c("Palbo_1","Palbo_2","Palbo_3", "Control_1","Control_2","Control_3")
+
+pheatmap(expvals_huh7, scale = "row", col=colorRampPalette(c("purple","white","red"))(50),
+         fontsize_row = 4,
+         fontsize_col = 10)
+```
+
